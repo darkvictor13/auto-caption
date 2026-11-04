@@ -34,6 +34,7 @@ from . import media
 from .ass_builder import build_ass
 from .cli import FONTS_DIR, POSITIONS
 from .grouping import CaptionLine
+from .presets import DEFAULT_SETTINGS, MODEL_CHOICES, PresetStore, validate_settings
 from .styles import PRESETS
 from .transcribe import Word
 
@@ -45,32 +46,7 @@ MEDIA_EXTENSIONS = {
     ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus",
 }
 
-MODEL_CHOICES = {
-    "auto (recommended)": None,
-    "tiny.en - fastest": "tiny.en",
-    "base.en - fast": "base.en",
-    "small.en - balanced": "small.en",
-    "medium.en - accurate": "medium.en",
-    "large-v3 - best (multilingual)": "large-v3",
-}
-
 LANGUAGES = ["en", "auto", "es", "pt", "fr", "de", "it"]
-
-DEFAULT_SETTINGS = {
-    "style": "pop",
-    "position": "low",
-    "highlight_color": "#FFD700",
-    "box_color": "#242424",
-    "font": "Anton",
-    "font_size": "130",
-    "words_per_line": "4",
-    "language": "en",
-    "model_label": "auto (recommended)",
-    "caps": True,
-    "burn": True,
-    "srt": True,
-    "nvenc": False,
-}
 
 
 def settings_to_flags(s: dict) -> list[str]:
@@ -175,8 +151,8 @@ class App(_AppBase):
         super().__init__()
         ctk.set_appearance_mode("dark")
         self.title("Auto-Caption")
-        self.geometry("760x780")
-        self.minsize(680, 700)
+        self.geometry("800x890")
+        self.minsize(760, 820)
 
         self.files: list[Path] = []
         self._worker_thread: threading.Thread | None = None
@@ -185,10 +161,12 @@ class App(_AppBase):
         self._last_output: str | None = None
         self._log_q: queue.Queue = queue.Queue()
         self._preview_photo = None  # keep a reference so Tk doesn't GC the image
+        self.preset_store = PresetStore(CONFIG_PATH.with_name("presets.json"))
 
         self.dnd_available = HAS_DND and getattr(self, "_dnd_ok", False)
         self._build_ui()
         self._load_settings()
+        self._load_presets()
 
         if self.dnd_available:
             self.drop_target_register(DND_FILES)
@@ -259,51 +237,75 @@ class App(_AppBase):
         for col in (1, 3):
             grid.grid_columnconfigure(col, weight=1)
 
+        preset_frame = ctk.CTkFrame(grid, fg_color="transparent")
+        preset_frame.grid(row=0, column=0, columnspan=4, sticky="ew", padx=10, pady=(6, 10))
+        preset_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(preset_frame, text="Preset").grid(row=0, column=0, padx=(0, 8))
+        self.preset_var = ctk.StringVar(value="")
+        self.preset_menu = ctk.CTkOptionMenu(
+            preset_frame, variable=self.preset_var, values=[""], command=self._apply_preset,
+        )
+        self.preset_menu.grid(row=0, column=1, sticky="ew")
+        self.preset_status = ctk.CTkLabel(preset_frame, text="Save all current settings as a preset.")
+        self.preset_status.grid(row=1, column=0, columnspan=2, sticky="w")
+        buttons = ctk.CTkFrame(preset_frame, fg_color="transparent")
+        buttons.grid(row=2, column=0, columnspan=2, sticky="ew")
+        self.preset_buttons = {}
+        for index, (text, action) in enumerate((
+            ("Save new", "create"), ("Update", "update"), ("Rename", "rename"),
+            ("Duplicate", "duplicate"), ("Delete", "delete"),
+        )):
+            buttons.grid_columnconfigure(index, weight=1)
+            button = ctk.CTkButton(buttons, text=text, width=90,
+                                  command=lambda action=action: self._edit_preset(action))
+            button.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 4, 0))
+            self.preset_buttons[action] = button
+
         def label(text, row, col):
-            ctk.CTkLabel(grid, text=text, anchor="e").grid(row=row, column=col, sticky="e", padx=(10, 4), pady=5)
+            ctk.CTkLabel(grid, text=text, anchor="e").grid(row=row + 1, column=col, sticky="e", padx=(10, 4), pady=5)
 
         label("Style", 0, 0)
         self.style_var = ctk.StringVar()
         ctk.CTkOptionMenu(grid, variable=self.style_var, values=sorted(PRESETS)).grid(
-            row=0, column=1, sticky="ew", padx=4, pady=5
+            row=1, column=1, sticky="ew", padx=4, pady=5
         )
 
         label("Position", 0, 2)
         self.position_var = ctk.StringVar()
         ctk.CTkOptionMenu(grid, variable=self.position_var, values=sorted(POSITIONS)).grid(
-            row=0, column=3, sticky="ew", padx=(4, 10), pady=5
+            row=1, column=3, sticky="ew", padx=(4, 10), pady=5
         )
 
         label("Font", 1, 0)
         self.font_var = ctk.StringVar()
         self.font_menu = ctk.CTkComboBox(grid, variable=self.font_var, values=available_fonts())
-        self.font_menu.grid(row=1, column=1, sticky="ew", padx=4, pady=5)
+        self.font_menu.grid(row=2, column=1, sticky="ew", padx=4, pady=5)
 
         label("Font size", 1, 2)
         self.font_size_var = ctk.StringVar()
-        ctk.CTkEntry(grid, textvariable=self.font_size_var).grid(row=1, column=3, sticky="ew", padx=(4, 10), pady=5)
+        ctk.CTkEntry(grid, textvariable=self.font_size_var).grid(row=2, column=3, sticky="ew", padx=(4, 10), pady=5)
 
         label("Highlight", 2, 0)
         self.highlight_var = ctk.StringVar()
         self.color_button = ctk.CTkButton(grid, text="#FFD700", command=self._pick_color, text_color="black")
-        self.color_button.grid(row=2, column=1, sticky="ew", padx=4, pady=5)
+        self.color_button.grid(row=3, column=1, sticky="ew", padx=4, pady=5)
 
         label("Words/line", 2, 2)
         self.words_var = ctk.StringVar()
         ctk.CTkOptionMenu(grid, variable=self.words_var, values=[str(n) for n in range(1, 7)]).grid(
-            row=2, column=3, sticky="ew", padx=(4, 10), pady=5
+            row=3, column=3, sticky="ew", padx=(4, 10), pady=5
         )
 
         label("Model", 3, 0)
         self.model_var = ctk.StringVar()
         ctk.CTkOptionMenu(grid, variable=self.model_var, values=list(MODEL_CHOICES)).grid(
-            row=3, column=1, sticky="ew", padx=4, pady=5
+            row=4, column=1, sticky="ew", padx=4, pady=5
         )
 
         label("Language", 3, 2)
         self.language_var = ctk.StringVar()
         ctk.CTkComboBox(grid, variable=self.language_var, values=LANGUAGES).grid(
-            row=3, column=3, sticky="ew", padx=(4, 10), pady=5
+            row=4, column=3, sticky="ew", padx=(4, 10), pady=5
         )
 
         label("Box color", 4, 0)
@@ -312,13 +314,13 @@ class App(_AppBase):
             grid, text="#242424", command=self._pick_box_color,
             fg_color="#242424", text_color="white",
         )
-        self.box_color_button.grid(row=4, column=1, sticky="ew", padx=4, pady=5)
+        self.box_color_button.grid(row=5, column=1, sticky="ew", padx=4, pady=5)
         ctk.CTkLabel(grid, text="Used by the box style").grid(
-            row=4, column=2, columnspan=2, padx=4, pady=5
+            row=5, column=2, columnspan=2, padx=4, pady=5
         )
 
         switches = ctk.CTkFrame(grid, fg_color="transparent")
-        switches.grid(row=5, column=0, columnspan=4, sticky="ew", padx=6, pady=(4, 8))
+        switches.grid(row=6, column=0, columnspan=4, sticky="ew", padx=6, pady=(4, 8))
         self.caps_var = ctk.BooleanVar()
         self.burn_var = ctk.BooleanVar()
         self.srt_var = ctk.BooleanVar()
@@ -355,6 +357,70 @@ class App(_AppBase):
         self.log_box = ctk.CTkTextbox(self, wrap="word")
         self.log_box.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.log_box.configure(state="disabled")
+
+    # ---------------------------------------------------------- presets
+
+    def _load_presets(self) -> None:
+        try:
+            self.preset_store.load()
+        except (OSError, ValueError) as error:
+            self.preset_menu.configure(state="disabled")
+            for button in self.preset_buttons.values():
+                button.configure(state="disabled")
+            self.preset_status.configure(text="Presets unavailable; see log.")
+            self._log(f"[error] Cannot load presets: {error}\n"
+                      f"[info] Existing file preserved: {self.preset_store.path}\n")
+            return
+        self._refresh_presets()
+
+    def _refresh_presets(self, selected: str = "") -> None:
+        names = self.preset_store.names()
+        self.preset_menu.configure(values=names or [""], state="normal" if names else "disabled")
+        self.preset_var.set(selected)
+        for action, button in self.preset_buttons.items():
+            button.configure(state="normal" if action == "create" or selected else "disabled")
+
+    def _apply_preset(self, name: str) -> None:
+        if not name:
+            return
+        self._apply_settings(self.preset_store.get(name))
+        self._refresh_presets(name)
+        self.preset_status.configure(text="Preset applied. Update to save further changes.")
+
+    def _edit_preset(self, action: str) -> None:
+        selected = self.preset_var.get()
+        if action != "create" and not selected:
+            return
+        try:
+            if action in ("create", "rename", "duplicate"):
+                prompt = {
+                    "create": "Name for the current settings:",
+                    "rename": f'New name for "{selected}":',
+                    "duplicate": f'Name for a copy of saved preset "{selected}":',
+                }[action]
+                name = ctk.CTkInputDialog(text=prompt, title="Preset").get_input()
+                if name is None:
+                    return
+                if action == "create":
+                    selected = self.preset_store.create(name, self._gather_settings())
+                elif action == "rename":
+                    selected = self.preset_store.rename(selected, name)
+                else:
+                    selected = self.preset_store.duplicate(selected, name)
+                    self._apply_settings(self.preset_store.get(selected))
+            elif action == "update":
+                if not messagebox.askyesno("Update preset", f'Replace all settings in "{selected}" with the current settings?'):
+                    return
+                self.preset_store.update(selected, self._gather_settings())
+            elif action == "delete":
+                if not messagebox.askyesno("Delete preset", f'Delete "{selected}"? Current settings will stay available.'):
+                    return
+                self.preset_store.delete(selected)
+                selected = ""
+            self._refresh_presets(selected)
+            self.preset_status.configure(text="Preset saved." if selected else "Preset deleted. Current settings kept.")
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Preset not saved", str(error))
 
     # ---------------------------------------------------------- settings
 
@@ -495,8 +561,13 @@ class App(_AppBase):
         if not self.files:
             messagebox.showinfo("Nothing to do", "Add a video or audio file first.")
             return
+        try:
+            settings = validate_settings(self._gather_settings())
+        except ValueError as error:
+            messagebox.showerror("Invalid settings", str(error))
+            return
         self._save_settings()
-        flags = settings_to_flags(self._gather_settings())
+        flags = settings_to_flags(settings)
         files = list(self.files)
         self._cancelled = False
         self._last_output = None

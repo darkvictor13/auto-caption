@@ -74,6 +74,24 @@ pip install -e .
 - Live log, **cancel** mid-run, **open output folder** on the result
 - Settings are remembered between launches
 
+### Named presets
+
+Set up the app for a client or workflow, then click **Save new** beside the
+Preset selector and enter a name (for example, **Ótica**). A preset saves every
+option in the settings panel: style, position, font and size, highlight and box
+colors, words per line, model, language, uppercase, video burn-in, DaVinci SRT,
+and NVENC.
+
+Select a preset to apply its settings to the app. **Update** replaces that
+preset with the current settings; **Rename**, **Duplicate**, and **Delete**
+manage saved presets. Duplicating copies the saved settings. Deleting a preset
+keeps the current settings on screen. Updates and deletions ask for confirmation.
+Changes to the controls are saved to a preset only when you click **Update**.
+
+Presets persist locally between launches in `presets.json`, next to the app's
+`settings.json` (`%APPDATA%/autocaption/` on Windows). They are separate from the
+built-in `pop`, `karaoke`, and `box` styles. There is no import/export step.
+
 ## The CLI
 
 ```bash
