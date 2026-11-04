@@ -1,10 +1,12 @@
 """User presets survive restarts and restore every setting used by the GUI."""
 
 import json
+import os
+import sys
 
 import pytest
 
-from autocaption.presets import DEFAULT_SETTINGS, PresetStore
+from autocaption.presets import DEFAULT_SETTINGS, PresetConflictError, PresetStore
 
 
 def optical_settings():
@@ -104,6 +106,50 @@ def test_older_preset_receives_defaults_for_new_settings(tmp_path):
     assert store.get("Old") == {**DEFAULT_SETTINGS, "style": "box"}
 
 
+@pytest.mark.parametrize("action", ["create", "update", "rename", "duplicate", "delete"])
+def test_second_window_cannot_overwrite_newer_presets(tmp_path, action):
+    path = tmp_path / "presets.json"
+    first = PresetStore(path)
+    first.create("Original", DEFAULT_SETTINGS)
+    second = PresetStore(path)
+    second.load()
+    first.create("Newer", optical_settings())
+    before = path.read_bytes()
+    operations = {
+        "create": lambda: second.create("Other", DEFAULT_SETTINGS),
+        "update": lambda: second.update("Original", optical_settings()),
+        "rename": lambda: second.rename("Original", "Renamed"),
+        "duplicate": lambda: second.duplicate("Original", "Copy"),
+        "delete": lambda: second.delete("Original"),
+    }
+    with pytest.raises(PresetConflictError):
+        operations[action]()
+    assert path.read_bytes() == before
+    assert second.names() == ["Original"]
+    assert list(tmp_path.glob("*.tmp")) == []
+    second.load()
+    second.create("Recovered", DEFAULT_SETTINGS)
+    first.load()
+    assert first.names() == ["Newer", "Original", "Recovered"]
+
+
+@pytest.mark.parametrize("content", ["[]", '{"box_color": "invalid"}', '{"font_size": "no"}',
+                                         '{"style": "gone"}', "not json"])
+def test_invalid_last_settings_do_not_break_startup(tmp_path, monkeypatch, content):
+    pytest.importorskip("customtkinter")
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from autocaption import gui
+
+    path = tmp_path / "settings.json"
+    path.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(gui, "CONFIG_PATH", path)
+    app = SimpleNamespace(_apply_settings=Mock())
+    gui.App._load_settings(app)
+    app._apply_settings.assert_called_once_with(DEFAULT_SETTINGS)
+
+
+@pytest.mark.skipif(sys.platform == "linux" and not os.environ.get("DISPLAY"), reason="GUI requires a display")
 def test_gui_crud_and_generation_flags(tmp_path, monkeypatch):
     pytest.importorskip("customtkinter")
     from autocaption import gui
@@ -134,7 +180,9 @@ def test_gui_crud_and_generation_flags(tmp_path, monkeypatch):
         preview = gui.settings_to_style(app._gather_settings())
         assert (preview.mode, preview.font, preview.box_color) == ("box", "Montserrat ExtraBold", "#004080")
         app.font_size_var.set("110")
+        assert "Unsaved" in app.preset_status.cget("text")
         app._edit_preset("update")
+        assert "Unsaved" not in app.preset_status.cget("text")
         name("Ótica filial")
         app._edit_preset("duplicate")
         name("Filial")
@@ -149,7 +197,8 @@ def test_gui_crud_and_generation_flags(tmp_path, monkeypatch):
         # Dialog cancellation and denied confirmations must not mutate a preset.
         before = app.preset_store.path.read_bytes()
         name(None)
-        app._edit_preset("create")
+        for action in ("create", "rename", "duplicate"):
+            app._edit_preset(action)
         monkeypatch.setattr(gui.messagebox, "askyesno", lambda *args: False)
         app._apply_preset("Ótica")
         app.font_size_var.set("200")
@@ -157,6 +206,62 @@ def test_gui_crud_and_generation_flags(tmp_path, monkeypatch):
         app._edit_preset("delete")
         assert app.preset_store.path.read_bytes() == before
         assert app.preset_var.get() == "Ótica"
+        errors = []
+        monkeypatch.setattr(gui.messagebox, "showerror", lambda *args: errors.append(args))
+        monkeypatch.setattr(gui.messagebox, "askyesno", lambda *args: True)
+        for invalid_name in ("", "  ", "óTICA"):
+            name(invalid_name)
+            for action in ("create", "duplicate"):
+                app._edit_preset(action)
+        assert len(errors) == 6
+        assert app.preset_store.path.read_bytes() == before
+        app.font_size_var.set("invalid")
+        app._edit_preset("update")
+        assert len(errors) == 7
+        assert app.preset_store.path.read_bytes() == before
+        app.font_size_var.set("200")
+        # Renaming must not claim unsaved settings were saved.
+        name("Renamed")
+        app._edit_preset("rename")
+        assert "Unsaved" in app.preset_status.cget("text")
+        assert app.preset_store.get("Renamed")["font_size"] == "110"
+
+        # A second window's save must never be silently overwritten.
+        external = PresetStore(app.preset_store.path)
+        external.load()
+        external.create("Other window", DEFAULT_SETTINGS)
+        errors = []
+        monkeypatch.setattr(gui.messagebox, "showerror", lambda *args: errors.append(args))
+        monkeypatch.setattr(gui.messagebox, "askyesno", lambda *args: True)
+        app._edit_preset("update")
+        assert errors[-1][0] == "Presets changed"
+        assert app.preset_store.names() == ["Other window", "Renamed"]
+        assert app.font_size_var.get() == "200"
+        assert app.preset_var.get() == ""
+
+        # The full action row must fit on a 700px-high window.
+        app.deiconify()
+        app.geometry("760x700")
+        app.update_idletasks()
+        assert app.generate_button.winfo_rooty() + app.generate_button.winfo_height() < app.winfo_rooty() + 700
+        # Reopen in a fresh process, as a user would after closing the app.
+        import subprocess
+        app._save_settings()
+        script = """
+import json, sys
+from pathlib import Path
+from autocaption import gui
+gui.CONFIG_PATH = Path(sys.argv[1])
+gui.App._check_ffmpeg = lambda self: None
+app = gui.App()
+app.withdraw()
+app._apply_preset('Renamed')
+print(json.dumps(app._gather_settings()))
+app._on_close()
+"""
+        result = subprocess.run([sys.executable, "-c", script, str(tmp_path / "settings.json")],
+                                capture_output=True, text=True, check=True)
+        assert json.loads(result.stdout) == {**optical_settings(), "font_size": "110"}
     finally:
         app._on_close()
 

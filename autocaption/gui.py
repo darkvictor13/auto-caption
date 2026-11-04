@@ -34,7 +34,7 @@ from . import media
 from .ass_builder import build_ass
 from .cli import FONTS_DIR, POSITIONS
 from .grouping import CaptionLine
-from .presets import DEFAULT_SETTINGS, MODEL_CHOICES, PresetStore, validate_settings
+from .presets import DEFAULT_SETTINGS, MODEL_CHOICES, PresetConflictError, PresetStore, validate_settings
 from .styles import PRESETS
 from .transcribe import Word
 
@@ -151,8 +151,8 @@ class App(_AppBase):
         super().__init__()
         ctk.set_appearance_mode("dark")
         self.title("Auto-Caption")
-        self.geometry("800x890")
-        self.minsize(760, 820)
+        self.geometry("800x780")
+        self.minsize(760, 700)
 
         self.files: list[Path] = []
         self._worker_thread: threading.Thread | None = None
@@ -167,6 +167,12 @@ class App(_AppBase):
         self._build_ui()
         self._load_settings()
         self._load_presets()
+        for variable in (
+            self.style_var, self.position_var, self.highlight_var, self.box_color_var,
+            self.font_var, self.font_size_var, self.words_var, self.language_var,
+            self.model_var, self.caps_var, self.burn_var, self.srt_var, self.nvenc_var,
+        ):
+            variable.trace_add("write", self._update_preset_status)
 
         if self.dnd_available:
             self.drop_target_register(DND_FILES)
@@ -377,6 +383,8 @@ class App(_AppBase):
         names = self.preset_store.names()
         self.preset_menu.configure(values=names or [""], state="normal" if names else "disabled")
         self.preset_var.set(selected)
+        if not selected:
+            self.preset_status.configure(text="Select a preset or save the current settings.")
         for action, button in self.preset_buttons.items():
             button.configure(state="normal" if action == "create" or selected else "disabled")
 
@@ -385,7 +393,17 @@ class App(_AppBase):
             return
         self._apply_settings(self.preset_store.get(name))
         self._refresh_presets(name)
-        self.preset_status.configure(text="Preset applied. Update to save further changes.")
+        self._update_preset_status()
+
+    def _update_preset_status(self, *_args) -> None:
+        name = self.preset_var.get()
+        if not name:
+            return
+        changed = self._gather_settings() != self.preset_store.get(name)
+        self.preset_status.configure(text=(
+            "Unsaved preset changes. Click Update to save."
+            if changed else "Preset applied. All settings match the saved preset."
+        ))
 
     def _edit_preset(self, action: str) -> None:
         selected = self.preset_var.get()
@@ -419,6 +437,10 @@ class App(_AppBase):
                 selected = ""
             self._refresh_presets(selected)
             self.preset_status.configure(text="Preset saved." if selected else "Preset deleted. Current settings kept.")
+            self._update_preset_status()
+        except PresetConflictError as error:
+            self._load_presets()
+            messagebox.showerror("Presets changed", str(error))
         except (OSError, ValueError) as error:
             messagebox.showerror("Preset not saved", str(error))
 
@@ -459,7 +481,7 @@ class App(_AppBase):
     def _load_settings(self) -> None:
         settings = dict(DEFAULT_SETTINGS)
         try:
-            settings.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
+            settings = validate_settings(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             pass
         self._apply_settings(settings)
@@ -541,7 +563,7 @@ class App(_AppBase):
 
     def _preview(self) -> None:
         try:
-            style = settings_to_style(self._gather_settings())
+            style = settings_to_style(validate_settings(self._gather_settings()))
             out_png = Path(tempfile.gettempdir()) / "autocaption_preview.png"
             render_preview(style, out_png)
         except Exception as error:

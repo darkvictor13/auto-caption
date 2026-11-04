@@ -69,20 +69,27 @@ def validate_settings(settings: dict) -> dict:
     return result
 
 
+class PresetConflictError(ValueError):
+    """Another app instance changed the preset file since it was loaded."""
+
+
 class PresetStore:
     def __init__(self, path: Path):
         self.path = path
         self._presets: dict[str, dict] = {}
         self._writable = True
+        self._source: bytes | None = None
 
     def load(self) -> None:
         """Missing files are normal; damaged files must never be overwritten."""
         self._writable = False
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            source = self.path.read_bytes()
+            raw = json.loads(source.decode("utf-8"))
         except FileNotFoundError:
             self._presets = {}
             self._writable = True
+            self._source = None
             return
         if not isinstance(raw, dict) or raw.get("version") != 1 or not isinstance(raw.get("presets"), dict):
             raise ValueError("Unsupported or invalid preset file.")
@@ -91,6 +98,7 @@ class PresetStore:
             clean = self._validate_name(name, loaded)
             loaded[clean] = validate_settings(settings)
         self._presets = loaded
+        self._source = source
         self._writable = True
 
     @staticmethod
@@ -112,19 +120,30 @@ class PresetStore:
         if not self._writable:
             raise ValueError("Cannot save presets until the existing preset file can be loaded.")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps({"version": 1, "presets": presets}, ensure_ascii=False, indent=2)
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=self.path.parent,
                                              suffix=".tmp", delete=False) as file:
                 temporary = Path(file.name)
-                json.dump({"version": 1, "presets": presets}, file, ensure_ascii=False, indent=2)
+                file.write(payload)
                 file.flush()
                 os.fsync(file.fileno())
+            try:
+                current = self.path.read_bytes()
+            except FileNotFoundError:
+                current = None
+            if current != self._source:
+                raise PresetConflictError(
+                    "Presets changed in another window. The list will be reloaded; "
+                    "select a preset and try again. Current settings are kept."
+                )
             os.replace(temporary, self.path)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
         self._presets = presets
+        self._source = payload.encode("utf-8")
 
     def create(self, name: str, settings: dict) -> str:
         name = self._validate_name(name, self._presets)

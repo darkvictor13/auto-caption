@@ -87,6 +87,9 @@ preset with the current settings; **Rename**, **Duplicate**, and **Delete**
 manage saved presets. Duplicating copies the saved settings. Deleting a preset
 keeps the current settings on screen. Updates and deletions ask for confirmation.
 Changes to the controls are saved to a preset only when you click **Update**.
+The status below the selector indicates unsaved changes. If another app window
+changes the preset file, a stale save is rejected and the list is refreshed,
+keeping the current controls available so you can select a preset and retry.
 
 Presets persist locally between launches in `presets.json`, next to the app's
 `settings.json` (`%APPDATA%/autocaption/` on Windows). They are separate from the
