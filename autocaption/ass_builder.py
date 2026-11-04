@@ -80,6 +80,13 @@ def build_ass(
 
     pos_tag = f"\\pos({width / 2:.0f},{height * style.pos_y:.0f})"
     events: list[str] = []
+    if style.mode == "box":
+        from .box_builder import box_events
+
+        # Keep RGB mask colors exact on FFmpeg versions that otherwise apply
+        # legacy TV-range subtitle color conversion.
+        header = header.replace("ScriptType: v4.00+\n", "ScriptType: v4.00+\nYCbCr Matrix: None\n")
+        return header + "\n".join(box_events(lines, style, width, height, header)) + "\n"
     for line in lines:
         if style.mode == "karaoke":
             events.append(_karaoke_event(line, style, pos_tag))

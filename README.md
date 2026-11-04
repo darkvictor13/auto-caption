@@ -85,11 +85,12 @@ autocaption podcast.mp3                           # audio → subtitle files onl
 
 | Flag | Meaning (default) |
 |------|-------------------|
-| `--style pop\|karaoke` | caption style (`pop`) |
+| `--style pop\|karaoke\|box` | caption style (`pop`) |
 | `--model NAME` | whisper model (auto: `medium.en` on GPU, `small.en` on CPU) |
 | `--device auto\|cuda\|cpu` | inference device (`auto`, safe CPU fallback) |
 | `--language XX` | audio language, `auto` to detect (`en`) |
 | `--highlight-color HEX` | active-word color (`#FFD700`) |
+| `--box-color HEX` | rounded word background for `box` (`#242424`) |
 | `--font NAME` | font (bundled **Anton**; any installed font works) |
 | `--font-size N` | size at 1080×1920 reference scale (`130`) |
 | `--caps / --no-caps` | UPPERCASE captions (on) |
@@ -101,6 +102,22 @@ autocaption podcast.mp3                           # audio → subtitle files onl
 | `-o PATH` | output video path (`<input>.captioned.mp4`) |
 
 ## Styles
+
+**`box`** keeps the phrase white and places a rounded dark background behind
+the currently spoken word. Choose `box` in the GUI and set **Box color**;
+**Highlight** remains the letter color used by the original pop/karaoke styles.
+It uses FFmpeg/libass to measure the installed font precisely before creating
+the subtitle file. FFmpeg is therefore also required for box-style ASS exports
+without video burn-in. No additional Python packages are needed.
+Oversized lines are reduced proportionally to fit the video width. Small
+antialiased letters and punctuation are included in the background measurement.
+
+```bash
+autocaption clip.mp4 --style box --box-color 242424 --font "Montserrat ExtraBold" --language pt
+```
+
+The moving box is preserved in `.ass` and the burned `.mp4`. SRT exports are
+text-only for this style and cannot carry the rounded background.
 
 | `pop` (default) | `karaoke` |
 |---|---|

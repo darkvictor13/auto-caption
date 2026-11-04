@@ -8,7 +8,7 @@ from dataclasses import dataclass
 @dataclass
 class StylePreset:
     name: str
-    mode: str  # "pop" | "karaoke"
+    mode: str  # "pop" | "karaoke" | "box"
     font: str = "Anton"
     font_size: int = 130  # at the 1080x1920 reference resolution
     text_color: str = "#FFFFFF"
@@ -22,9 +22,11 @@ class StylePreset:
     fade_out_ms: int = 40
     pop_scale: int = 115  # % size the active word pops in from
     pop_ms: int = 60
+    box_color: str = "#242424"
 
 
 PRESETS: dict[str, StylePreset] = {
     "pop": StylePreset(name="pop", mode="pop"),
     "karaoke": StylePreset(name="karaoke", mode="karaoke"),
+    "box": StylePreset(name="box", mode="box", outline=1.0, shadow=1.0),
 }

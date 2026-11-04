@@ -1,0 +1,57 @@
+AUTO-CAPTION — LEGENDA COM CAIXA ARREDONDADA
+
+O estilo box mantém a frase branca e coloca uma caixa arredondada atrás da
+palavra falada. A caixa muda de posição e tamanho conforme a fala.
+
+COMO ATUALIZAR O PROGRAMA QUE VOCÊ JÁ INSTALOU
+
+1. Feche o Auto-Caption.
+2. Extraia este ZIP.
+3. Dentro da pasta extraída auto-caption-main, copie a pasta autocaption.
+4. Cole essa pasta dentro da pasta onde você já usa o programa, no mesmo
+   local do arquivo AutoCaption.bat. Confirme a substituição dos arquivos.
+   O resultado deve ser: sua-pasta\autocaption\box_builder.py
+5. Abra o AutoCaption.bat de sempre.
+
+Não é necessário apagar a pasta .venv nem reinstalar o programa.
+
+COMO DEIXAR PARECIDO COM A REFERÊNCIA
+
+- Style: box
+- Font: Montserrat ExtraBold (ou outra fonte instalada que você preferir)
+- Box color: #242424 (cinza bem escuro)
+- Language: pt
+- UPPERCASE: ligado
+- Words/line: 3 ou 4
+- Burn video: ligado para receber o vídeo MP4 já com o efeito
+
+O botão Preview style permite conferir o resultado antes de gerar o vídeo.
+Font size e Position continuam ajustáveis. A cor da caixa é independente
+da opção Highlight, que continua sendo usada nos estilos pop e karaoke.
+As configurações são salvas pelo programa ao gerar ou fechar.
+
+CORREÇÃO DA MEDIÇÃO E DO PREVIEW
+
+Esta versão corrige a falha "Could not measure a caption word", que também
+podia impedir o botão Preview style de funcionar. A medição agora reconhece
+caracteres suavizados e pontuação em fontes pequenas, mede frases grandes sem
+cortá-las e reduz proporcionalmente as linhas que ultrapassam a largura do vídeo.
+Caracteres sem desenho visível não interrompem a exportação do restante da fala.
+Os acentos do painel também passam a usar UTF-8 no processo de transcrição.
+
+O arquivo PREVIA_CAIXA.mp4 mostra o efeito em movimento com a fonte Anton,
+que acompanha o programa. Para usar Montserrat, selecione sua fonte no app.
+Essa prévia usa tempos de exemplo, sem áudio.
+
+OBSERVAÇÕES
+
+A caixa aparece no vídeo final e no arquivo ASS. O formato SRT não preserva
+esse efeito. O FFmpeg já usado pelo programa também é necessário para medir
+a posição correta da caixa, mesmo ao exportar somente o ASS.
+
+Verificado: 30 testes, renderização em 540x960, 1080x1920, 1280x720 e 360x640,
+troca de palavra, acentos, cor personalizada, fontes e exportação do vídeo.
+Preview style renderizado com os estilos box, pop e karaoke; caixa testada
+com fontes pequenas, normais e grandes. A transcrição completa enviada no log
+(169 palavras) foi usada para conferir a geração das legendas sem baixar modelos.
+O aplicativo não foi executado em Windows neste ambiente.

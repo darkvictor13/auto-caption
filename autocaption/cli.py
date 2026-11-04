@@ -41,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
     parser.add_argument("--language", default="en", help="audio language, or 'auto' to detect")
     parser.add_argument("--highlight-color", type=_hex_color, default=None, metavar="HEX")
+    parser.add_argument("--box-color", type=_hex_color, default=None, metavar="HEX",
+                        help="background color for the box style (default: #242424)")
     parser.add_argument("--font", default=None, help="font name (default: bundled Anton)")
     parser.add_argument("--font-size", type=int, default=None,
                         help="size at the 1080x1920 reference scale")
@@ -63,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     overrides = {"pos_y": POSITIONS[args.position]}
     if args.highlight_color:
         overrides["highlight_color"] = args.highlight_color
+    if args.box_color:
+        overrides["box_color"] = args.box_color
     if args.font:
         overrides["font"] = args.font
     if args.font_size:
@@ -99,7 +103,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_srt:
         srt_path = input_path.with_suffix(".davinci.srt")
-        srt_path.write_text(build_srt(lines, style.highlight_color), encoding="utf-8")
+        srt_color = style.text_color if style.mode == "box" else style.highlight_color
+        srt_path.write_text(build_srt(lines, srt_color), encoding="utf-8")
+        if style.mode == "box":
+            print("[captions] SRT is text-only; the moving box is saved in ASS and burned video.")
         print(f"[out] {srt_path}")
 
     if size is not None and not args.no_burn:

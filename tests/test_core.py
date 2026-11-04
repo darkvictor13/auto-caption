@@ -1,6 +1,7 @@
 """Unit tests for the pure logic (no ffmpeg, no whisper, no GUI windows)."""
 
 import pytest
+import shutil
 
 from autocaption.ass_builder import _inline_color, _style_color, ass_time, build_ass
 from autocaption.grouping import group_words
@@ -83,11 +84,14 @@ def test_build_srt_one_highlight_per_block():
 
 @pytest.mark.parametrize("preset", sorted(PRESETS))
 def test_build_ass_structure(preset):
+    if preset == "box" and not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg required for box layout")
     lines = group_words(words_from([("hello", 0.0, 0.4), ("world", 0.4, 0.9)]))
     doc = build_ass(lines, PRESETS[preset], 1080, 1920)
     assert "PlayResX: 1080" in doc and "PlayResY: 1920" in doc
     dialogues = [l for l in doc.splitlines() if l.startswith("Dialogue:")]
-    assert len(dialogues) == (2 if PRESETS[preset].mode == "pop" else 1)
+    expected = {"pop": 2, "karaoke": 1, "box": 3}
+    assert len(dialogues) == expected[PRESETS[preset].mode]
 
 
 def test_filter_path_escapes_windows_paths():

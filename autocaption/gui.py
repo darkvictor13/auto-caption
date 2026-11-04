@@ -60,6 +60,7 @@ DEFAULT_SETTINGS = {
     "style": "pop",
     "position": "low",
     "highlight_color": "#FFD700",
+    "box_color": "#242424",
     "font": "Anton",
     "font_size": "130",
     "words_per_line": "4",
@@ -78,6 +79,7 @@ def settings_to_flags(s: dict) -> list[str]:
         "--style", s["style"],
         "--position", s["position"],
         "--highlight-color", s["highlight_color"],
+        "--box-color", s.get("box_color", "#242424"),
         "--font", s["font"],
         "--font-size", s["font_size"],
         "--words-per-line", s["words_per_line"],
@@ -103,6 +105,7 @@ def settings_to_style(s: dict):
         font=s["font"],
         font_size=int(s["font_size"]),
         highlight_color=s["highlight_color"],
+        box_color=s.get("box_color", "#242424"),
         caps=bool(s["caps"]),
         pos_y=POSITIONS[s["position"]],
     )
@@ -111,6 +114,8 @@ def settings_to_style(s: dict):
 def render_preview(style, out_png: Path, width: int = 540, height: int = 960) -> None:
     """Render one sample caption frame ("EVERY SINGLE WORD", middle word active)."""
     line = CaptionLine([Word("Every", 0.0, 10.0), Word("single", 10.0, 20.0), Word("word", 20.0, 30.0)])
+    if style.mode == "box":
+        line = CaptionLine([Word("Existe", 0.0, 5.0), Word("uma", 5.0, 10.0), Word("dúvida", 10.0, 30.0)])
     ass_file = out_png.with_suffix(".ass")
     ass_file.write_text(build_ass([line], style, width, height), encoding="utf-8")
     vf = f"ass=filename='{media._filter_path(ass_file)}'"
@@ -301,8 +306,19 @@ class App(_AppBase):
             row=3, column=3, sticky="ew", padx=(4, 10), pady=5
         )
 
+        label("Box color", 4, 0)
+        self.box_color_var = ctk.StringVar(value="#242424")
+        self.box_color_button = ctk.CTkButton(
+            grid, text="#242424", command=self._pick_box_color,
+            fg_color="#242424", text_color="white",
+        )
+        self.box_color_button.grid(row=4, column=1, sticky="ew", padx=4, pady=5)
+        ctk.CTkLabel(grid, text="Used by the box style").grid(
+            row=4, column=2, columnspan=2, padx=4, pady=5
+        )
+
         switches = ctk.CTkFrame(grid, fg_color="transparent")
-        switches.grid(row=4, column=0, columnspan=4, sticky="ew", padx=6, pady=(4, 8))
+        switches.grid(row=5, column=0, columnspan=4, sticky="ew", padx=6, pady=(4, 8))
         self.caps_var = ctk.BooleanVar()
         self.burn_var = ctk.BooleanVar()
         self.srt_var = ctk.BooleanVar()
@@ -347,6 +363,7 @@ class App(_AppBase):
             "style": self.style_var.get(),
             "position": self.position_var.get(),
             "highlight_color": self.highlight_var.get(),
+            "box_color": self.box_color_var.get(),
             "font": self.font_var.get(),
             "font_size": self.font_size_var.get().strip() or DEFAULT_SETTINGS["font_size"],
             "words_per_line": self.words_var.get(),
@@ -362,6 +379,7 @@ class App(_AppBase):
         self.style_var.set(s["style"])
         self.position_var.set(s["position"])
         self._set_color(s["highlight_color"])
+        self._set_box_color(s.get("box_color", "#242424"))
         self.font_var.set(s["font"])
         self.font_size_var.set(str(s["font_size"]))
         self.words_var.set(str(s["words_per_line"]))
@@ -439,6 +457,20 @@ class App(_AppBase):
         if hex_color:
             self._set_color(hex_color.upper())
 
+    def _set_box_color(self, hex_color: str) -> None:
+        self.box_color_var.set(hex_color)
+        luminance = sum(int(hex_color.lstrip("#")[i:i + 2], 16) * w
+                        for i, w in ((0, 0.299), (2, 0.587), (4, 0.114)))
+        self.box_color_button.configure(
+            text=hex_color, fg_color=hex_color, hover_color=hex_color,
+            text_color="black" if luminance > 128 else "white",
+        )
+
+    def _pick_box_color(self) -> None:
+        _, hex_color = colorchooser.askcolor(color=self.box_color_var.get(), title="Box color")
+        if hex_color:
+            self._set_box_color(hex_color.upper())
+
     # --------------------------------------------------------- preview
 
     def _preview(self) -> None:
@@ -491,6 +523,7 @@ class App(_AppBase):
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
                     creationflags=CREATE_NO_WINDOW,
                 )
                 for line in self._proc.stdout:
